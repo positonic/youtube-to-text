@@ -1,0 +1,5 @@
+.env*
+*.mp3
+*.part
+*.ytdl
+*.mm4a
