@@ -71,7 +71,7 @@ psql "connection_string" -c "\df notify_new_video"
 
 1. Start the transcription service:
 ```bash
-go run service.go
+go run service.go transcribe.go
 ```
 
 
