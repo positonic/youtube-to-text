@@ -1,9 +1,46 @@
 # youtube-to-text
 
-### Create a table in your database
+A service that automatically transcribes YouTube videos to text using LemonFox API. It comes with a one-off script to test the process, and a production setup for running the service.
 
+The production setup uses a PostgreSQL database and a trigger to listen for new videos inserted into the database. When a new video is inserted, the service will download the audio, send it to the LemonFox API, and store the transcription in the database.
+
+
+## Prerequisites
+
+- PostgreSQL database
+- LemonFox API key (for transcription service)
+- yt-dlp command-line tool (for downloading YouTube audio)
+- Go 1.22+
+
+## Setup
+
+### 1. Environment Variables
+
+Create a `.env` file based on `.env.example`.
+
+### 2. Try a one-off run to see how it works
+
+This uses a hardcoded video URL in the script and log the transcription to the console.
+
+```bash
+go run one-off.go
+```
+
+## Production Setup
+
+### 3. Database Setup
 The code below assumes you have a table named `Video`.
 
+```sql
+CREATE TABLE "Video" (
+id SERIAL PRIMARY KEY,
+url TEXT NOT NULL,
+status TEXT DEFAULT 'pending',
+transcription TEXT,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
 
 ### Create the trigger in your database:
 
@@ -29,4 +66,12 @@ CREATE TRIGGER video_inserted_trigger
 ```bash
 psql "connection_string" -c "\df notify_new_video"
 ```
+
+### 3. Running the Service
+
+1. Start the transcription service:
+```bash
+go run service.go
+```
+
 
