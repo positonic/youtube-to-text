@@ -1,4 +1,4 @@
-.env*
+.env
 *.mp3
 *.part
 *.ytdl
