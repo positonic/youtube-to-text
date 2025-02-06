@@ -26,13 +26,13 @@ func downloadAudio(youtubeUrl string, outputPath string) error {
 	return nil
 }
 
-func sendAudioToLemonfox(filePath string, apiKey string) error {
+func sendAudioToLemonfox(filePath string, apiKey string) (string, error) {
 	fmt.Println("Starting transcription process...")
 	
 	// Read file
 	fileData, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("error reading file: %w", err)
+		return "", fmt.Errorf("error reading file: %w", err)
 	}
 
 	// Create multipart form
@@ -42,10 +42,10 @@ func sendAudioToLemonfox(filePath string, apiKey string) error {
 	// Add file to form
 	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
-		return fmt.Errorf("error creating form file: %w", err)
+		return "", fmt.Errorf("error creating form file: %w", err)
 	}
 	if _, err := io.Copy(part, bytes.NewReader(fileData)); err != nil {
-		return fmt.Errorf("error copying file data: %w", err)
+		return "", fmt.Errorf("error copying file data: %w", err)
 	}
 
 	// Add other form fields
@@ -56,7 +56,7 @@ func sendAudioToLemonfox(filePath string, apiKey string) error {
 	// Create request
 	req, err := http.NewRequest("POST", "https://api.lemonfox.ai/v1/audio/transcriptions", body)
 	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
+		return "", fmt.Errorf("error creating request: %w", err)
 	}
 
 	// Set headers
@@ -67,23 +67,23 @@ func sendAudioToLemonfox(filePath string, apiKey string) error {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("error sending request: %w", err)
+		return "", fmt.Errorf("error sending request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	fmt.Println("Request sent, waiting for transcription...")
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("error reading response: %w", err)
+		return "", fmt.Errorf("error reading response: %w", err)
 	}
 
 	// Add status code check and response logging
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	fmt.Printf("Status Code: %d\n", resp.StatusCode)
 	fmt.Printf("Response Headers: %v\n", resp.Header)
 	fmt.Printf("Transcription result: %s\n", string(respBody))
-	return nil
+	return string(respBody), nil
 }

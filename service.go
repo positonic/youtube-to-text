@@ -2,6 +2,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/lib/pq"
 )
+
+var db *sql.DB // Global database connection pool
 
 func main() {
     // Load .env file
@@ -26,6 +29,21 @@ func main() {
     
     if apiKey == "" || dbURL == "" {
         fmt.Println("Error: LEMONFOX_API_KEY and DATABASE_URL environment variables must be set")
+        return
+    }
+
+    // Initialize database connection pool
+    var err error
+    db, err = sql.Open("postgres", dbURL)
+    if err != nil {
+        fmt.Printf("Error connecting to database: %v\n", err)
+        return
+    }
+    defer db.Close()
+
+    // Test the connection
+    if err := db.Ping(); err != nil {
+        fmt.Printf("Error pinging database: %v\n", err)
         return
     }
 
@@ -100,21 +118,90 @@ func processVideoNotification(jsonData string, apiKey string) error {
 
     fmt.Printf("Processing video ID: %s, URL: %s\n", video.ID, video.VideoURL)
     
+    // Update status to processing
+    if err := updateVideoStatus(video.ID, "processing"); err != nil {
+        return fmt.Errorf("failed to update status to processing: %w", err)
+    }
+    
     // Process the video
     outputPath := fmt.Sprintf("./temp_%s.mp3", video.ID)
     defer os.Remove(outputPath) // Clean up temp file
 
     fmt.Printf("Downloading audio to: %s\n", outputPath)
     if err := downloadAudio(video.VideoURL, outputPath); err != nil {
+        // Update status to failed
+        updateVideoStatus(video.ID, "failed")
         return fmt.Errorf("download error: %w", err)
     }
     fmt.Println("Audio download completed successfully")
 
     fmt.Println("Sending audio to Lemonfox for transcription...")
-    if err := sendAudioToLemonfox(outputPath, apiKey); err != nil {
+    transcription, err := sendAudioToLemonfox(outputPath, apiKey)
+    if err != nil {
+        updateVideoStatus(video.ID, "failed")
         return fmt.Errorf("transcription error: %w", err)
     }
     fmt.Println("Transcription completed successfully")
 
+    // Save transcription to database
+    if err := saveTranscription(video.ID, transcription); err != nil {
+        return fmt.Errorf("failed to save transcription: %w", err)
+    }
+
+    // Update status to completed
+    if err := updateVideoStatus(video.ID, "completed"); err != nil {
+        return fmt.Errorf("failed to update status to completed: %w", err)
+    }	
+
+    return nil
+}
+
+func updateVideoStatus(videoID string, status string) error {
+    const updateSQL = `
+        UPDATE "Video" 
+        SET status = $1, "updatedAt" = CURRENT_TIMESTAMP 
+        WHERE id = $2
+    `
+    
+    result, err := db.Exec(updateSQL, status, videoID)
+    if err != nil {
+        return fmt.Errorf("failed to execute update: %w", err)
+    }
+
+    rows, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("failed to get rows affected: %w", err)
+    }
+
+    if rows == 0 {
+        return fmt.Errorf("no video found with ID: %s", videoID)
+    }
+
+    fmt.Printf("Updated video %s status to: %s\n", videoID, status)
+    return nil
+}
+
+func saveTranscription(videoID string, transcription string) error {
+    const saveSQL = `
+        UPDATE "Video" 
+        SET transcription = $1, status = 'completed', "updatedAt" = CURRENT_TIMESTAMP 
+        WHERE id = $2
+    `
+    
+    result, err := db.Exec(saveSQL, transcription, videoID)
+    if err != nil {
+        return fmt.Errorf("failed to execute update: %w", err)
+    }
+
+    rows, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("failed to get rows affected: %w", err)
+    }
+
+    if rows == 0 {
+        return fmt.Errorf("no video found with ID: %s", videoID)
+    }
+
+    fmt.Printf("Saved transcription for video %s\n", videoID)
     return nil
 } 
