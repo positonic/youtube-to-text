@@ -1,4 +1,4 @@
-module youtube-to-text
+module jamesfarrell.me/youtube-to-text
 
 go 1.22.5
 
