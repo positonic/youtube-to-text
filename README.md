@@ -74,4 +74,12 @@ psql "connection_string" -c "\df notify_new_video"
 go run service.go transcribe.go
 ```
 
+## Rag search functionality
 
+Make sure you have created a vector database. I used pgvector on railway.app [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/3jJFCA)
+
+Run the following set up your database:
+
+```bash
+psql "postgres://postgres:xxxxx@xxxxx:37549/railway" -f setup.sql
+```

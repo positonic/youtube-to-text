@@ -2,15 +2,18 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/lib/pq"
+	"github.com/sashabaranov/go-openai"
 )
 
 var db *sql.DB // Global database connection pool
@@ -111,6 +114,7 @@ func processVideoNotification(jsonData string, apiKey string) error {
         CreatedAt     string    `json:"createdAt"`
         UpdatedAt     string    `json:"updatedAt"`
         UserID        int       `json:"userId"`
+        IsSearchable  bool      `json:"isSearchable"`
     }
     if err := json.Unmarshal([]byte(jsonData), &video); err != nil {
         return fmt.Errorf("json parse error: %w", err)
@@ -144,7 +148,7 @@ func processVideoNotification(jsonData string, apiKey string) error {
     fmt.Println("Transcription completed successfully")
 
     // Save transcription to database
-    if err := saveTranscription(video.ID, transcription); err != nil {
+    if err := saveTranscription(video.ID, transcription, video.IsSearchable); err != nil {
         return fmt.Errorf("failed to save transcription: %w", err)
     }
 
@@ -181,16 +185,161 @@ func updateVideoStatus(videoID string, status string) error {
     return nil
 }
 
-func saveTranscription(videoID string, transcription string) error {
-    const saveSQL = `
+func saveTranscription(videoID string, transcription string, isSearchable bool) error {
+    // First save the full transcription as before
+    if err := saveFullTranscription(videoID, transcription); err != nil {
+        return err
+    }
+
+    // Only process chunks if isSearchable is true
+    if isSearchable {
+        chunks := chunkText(transcription, 500, 50) // 500 chars with 50 char overlap
+        if err := saveChunks(videoID, chunks); err != nil {
+            // If chunk processing fails, update the video status to reflect the error
+            updateErr := updateVideoStatus(videoID, "chunk_processing_failed")
+            if updateErr != nil {
+                // Log both errors but return the original error
+                log.Printf("Failed to update video status: %v", updateErr)
+            }
+            return fmt.Errorf("failed to save chunks: %w", err)
+        }
+        
+        // Update video status to indicate successful chunk processing
+        if err := updateVideoStatus(videoID, "completed"); err != nil {
+            return fmt.Errorf("failed to update video status: %w", err)
+        }
+    }
+
+    return nil
+}
+
+type Chunk struct {
+    Text          string
+    StartPosition int
+    EndPosition   int
+    Embedding     []float32
+}
+
+func chunkText(text string, chunkSize, overlap int) []Chunk {
+    var chunks []Chunk
+    sentences := strings.Split(text, ".")
+    currentChunk := ""
+    startPos := 0
+    
+    for _, sentence := range sentences {
+        sentence = strings.TrimSpace(sentence) + "."
+        if len(currentChunk)+len(sentence) > chunkSize && len(currentChunk) > 0 {
+            chunks = append(chunks, Chunk{
+                Text:          currentChunk,
+                StartPosition: startPos,
+                EndPosition:   startPos + len(currentChunk),
+            })
+            // Move back by overlap
+            currentChunk = currentChunk[len(currentChunk)-overlap:] + sentence
+            startPos = startPos + len(currentChunk) - overlap
+        } else {
+            currentChunk += sentence
+        }
+    }
+    
+    // Add the last chunk if there's anything left
+    if len(currentChunk) > 0 {
+        chunks = append(chunks, Chunk{
+            Text:          currentChunk,
+            StartPosition: startPos,
+            EndPosition:   startPos + len(currentChunk),
+        })
+    }
+    
+    return chunks
+}
+
+func getEmbedding(text string, apiKey string) ([]float32, error) {
+    client := openai.NewClient(apiKey)
+    resp, err := client.CreateEmbeddings(context.Background(), openai.EmbeddingRequest{
+        Model: openai.AdaEmbeddingV2,
+        Input: []string{text},
+    })
+    if err != nil {
+        return nil, fmt.Errorf("embedding creation failed: %w", err)
+    }
+    
+    return resp.Data[0].Embedding, nil
+}
+
+func saveChunks(videoID string, chunks []Chunk) error {
+    // Prepare the statement
+    stmt, err := db.Prepare(`
+        INSERT INTO video_chunks (video_id, chunk_text, chunk_embedding, chunk_start, chunk_end)
+        VALUES ($1, $2, $3, $4, $5)
+    `)
+    if err != nil {
+        return fmt.Errorf("prepare statement failed: %w", err)
+    }
+    defer stmt.Close()
+
+    for _, chunk := range chunks {
+        embedding, err := getEmbedding(chunk.Text, os.Getenv("OPENAI_API_KEY"))
+        if err != nil {
+            return err
+        }
+        
+        _, err = stmt.Exec(
+            videoID,
+            chunk.Text,
+            embedding,
+            chunk.StartPosition,
+            chunk.EndPosition,
+        )
+        if err != nil {
+            return fmt.Errorf("chunk insert failed: %w", err)
+        }
+    }
+
+    return nil
+}
+
+// Example function to query similar chunks
+func findSimilarChunks(query string, limit int) ([]Chunk, error) {
+    queryEmbedding, err := getEmbedding(query, os.Getenv("OPENAI_API_KEY"))
+    if err != nil {
+        return nil, err
+    }
+
+    rows, err := db.Query(`
+        SELECT chunk_text, chunk_start, chunk_end
+        FROM video_chunks
+        ORDER BY chunk_embedding <=> $1
+        LIMIT $2
+    `, queryEmbedding, limit)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var chunks []Chunk
+    for rows.Next() {
+        var chunk Chunk
+        err := rows.Scan(&chunk.Text, &chunk.StartPosition, &chunk.EndPosition)
+        if err != nil {
+            return nil, err
+        }
+        chunks = append(chunks, chunk)
+    }
+
+    return chunks, nil
+}
+
+func saveFullTranscription(videoID string, transcription string) error {
+    const updateSQL = `
         UPDATE "Video" 
-        SET transcription = $1, status = 'completed', "updatedAt" = CURRENT_TIMESTAMP 
+        SET transcription = $1, "updatedAt" = CURRENT_TIMESTAMP 
         WHERE id = $2
     `
     
-    result, err := db.Exec(saveSQL, transcription, videoID)
+    result, err := db.Exec(updateSQL, transcription, videoID)
     if err != nil {
-        return fmt.Errorf("failed to execute update: %w", err)
+        return fmt.Errorf("failed to save transcription: %w", err)
     }
 
     rows, err := result.RowsAffected()
@@ -202,6 +351,5 @@ func saveTranscription(videoID string, transcription string) error {
         return fmt.Errorf("no video found with ID: %s", videoID)
     }
 
-    fmt.Printf("Saved transcription for video %s\n", videoID)
     return nil
 } 
