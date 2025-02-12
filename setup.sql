@@ -3,15 +3,16 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS "Video" (
     id TEXT PRIMARY KEY,
     "videoUrl" TEXT NOT NULL,
+    slug TEXT NOT NULL,
     transcription TEXT,
     status TEXT NOT NULL,
     "isSearchable" BOOLEAN DEFAULT false,
     "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    "userId" INTEGER NOT NULL
+    "userId" TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS video_chunks (
+CREATE TABLE IF NOT EXISTS "VideoChunk" (
     id SERIAL PRIMARY KEY,
     video_id TEXT REFERENCES "Video"(id),
     chunk_text TEXT NOT NULL,
@@ -21,7 +22,7 @@ CREATE TABLE IF NOT EXISTS video_chunks (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX ON video_chunks 
+CREATE INDEX ON "VideoChunk" 
 USING ivfflat (chunk_embedding vector_cosine_ops)
 WITH (lists = 100);
 
