@@ -83,3 +83,6 @@ Run the following set up your database:
 ```bash
 psql "postgres://postgres:xxxxx@xxxxx:37549/railway" -f setup.sql
 ```
+
+Add a random SERVICE_API_KEY to the .env file.
+You can generate a random key with `openssl rand -hex 32`.

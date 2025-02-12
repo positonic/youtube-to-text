@@ -2,18 +2,19 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/lib/pq"
-	"github.com/sashabaranov/go-openai"
+	"jamesfarrell.me/youtube-to-text/api" // Add this import
+	"jamesfarrell.me/youtube-to-text/api/embeddings"
 )
 
 var db *sql.DB // Global database connection pool
@@ -52,6 +53,15 @@ func main() {
 
     fmt.Printf("Connecting to database: %s\n", maskDatabaseURL(dbURL))
     
+    // Start the HTTP server in a goroutine
+    go func() {
+        router := api.NewRouter(db)  // Use the new router
+        fmt.Println("Starting HTTP server on :8080...")
+        if err := http.ListenAndServe(":8080", router); err != nil {
+            log.Fatalf("HTTP server error: %v", err)
+        }
+    }()
+
     // Start listening for new videos
     if err := listenForNewVideos(dbURL, apiKey); err != nil {
         fmt.Printf("Service error: %v\n", err)
@@ -254,24 +264,11 @@ func chunkText(text string, chunkSize, overlap int) []Chunk {
     return chunks
 }
 
-func getEmbedding(text string, apiKey string) ([]float32, error) {
-    client := openai.NewClient(apiKey)
-    resp, err := client.CreateEmbeddings(context.Background(), openai.EmbeddingRequest{
-        Model: openai.AdaEmbeddingV2,
-        Input: []string{text},
-    })
-    if err != nil {
-        return nil, fmt.Errorf("embedding creation failed: %w", err)
-    }
-    
-    return resp.Data[0].Embedding, nil
-}
-
 func saveChunks(videoID string, chunks []Chunk) error {
     // Prepare the statement
     stmt, err := db.Prepare(`
         INSERT INTO video_chunks (video_id, chunk_text, chunk_embedding, chunk_start, chunk_end)
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3::float8[], $4, $5)
     `)
     if err != nil {
         return fmt.Errorf("prepare statement failed: %w", err)
@@ -279,15 +276,21 @@ func saveChunks(videoID string, chunks []Chunk) error {
     defer stmt.Close()
 
     for _, chunk := range chunks {
-        embedding, err := getEmbedding(chunk.Text, os.Getenv("OPENAI_API_KEY"))
+        embedding, err := embeddings.GetEmbedding(chunk.Text, os.Getenv("OPENAI_API_KEY"))
         if err != nil {
             return err
+        }
+        
+        // Convert []float32 to []float64
+        embedding64 := make([]float64, len(embedding))
+        for i, v := range embedding {
+            embedding64[i] = float64(v)
         }
         
         _, err = stmt.Exec(
             videoID,
             chunk.Text,
-            embedding,
+            pq.Array(embedding64), // Use pq.Array to properly encode the slice
             chunk.StartPosition,
             chunk.EndPosition,
         )
@@ -301,7 +304,7 @@ func saveChunks(videoID string, chunks []Chunk) error {
 
 // Example function to query similar chunks
 func findSimilarChunks(query string, limit int) ([]Chunk, error) {
-    queryEmbedding, err := getEmbedding(query, os.Getenv("OPENAI_API_KEY"))
+    queryEmbedding, err := embeddings.GetEmbedding(query, os.Getenv("OPENAI_API_KEY"))
     if err != nil {
         return nil, err
     }

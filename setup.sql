@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS "Video" (
     "videoUrl" TEXT NOT NULL,
     transcription TEXT,
     status TEXT NOT NULL,
+    "isSearchable" BOOLEAN DEFAULT false,
     "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     "userId" INTEGER NOT NULL
@@ -36,6 +37,20 @@ CREATE TRIGGER update_video_updated_at
     BEFORE UPDATE ON "Video"
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- Add notification trigger for new videos
+CREATE OR REPLACE FUNCTION notify_new_video()
+  RETURNS trigger AS $$
+BEGIN
+  PERFORM pg_notify('new_video', row_to_json(NEW)::text);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER video_inserted_trigger
+  AFTER INSERT ON "Video"
+  FOR EACH ROW
+  EXECUTE FUNCTION notify_new_video();
 
 \dt
 \dx
