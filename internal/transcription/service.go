@@ -33,7 +33,19 @@ func NewService(repo *postgres.TranscriptionRepository, apiKey string, dbURL str
 	}
 }
 
-func (s *Service) DownloadAudio(youtubeURL string, outputPath string) error {
+func (s *Service) DownloadAudio(youtubeURL string, outputPath string) (string, error) {
+	// First, get the title using yt-dlp
+	titleCmd := exec.Command("yt-dlp",
+		"--get-title",
+		youtubeURL)
+	
+	titleBytes, err := titleCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("error getting video title: %w", err)
+	}
+	title := strings.TrimSpace(string(titleBytes))
+
+	// Then download the audio as before
 	cmd := exec.Command("yt-dlp",
 		"--extract-audio",
 		"--audio-format", "mp3",
@@ -42,9 +54,10 @@ func (s *Service) DownloadAudio(youtubeURL string, outputPath string) error {
 		youtubeURL)
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("error downloading audio: %w", err)
+		return "", fmt.Errorf("error downloading audio: %w", err)
 	}
-	return nil
+	
+	return title, nil
 }
 
 func (s *Service) TranscribeAudio(filePath string) (string, error) {
@@ -170,9 +183,16 @@ func (s *Service) processVideoNotification(notification string) error {
 		defer os.Remove(outputPath)
 
 		fmt.Printf("Downloading audio to: %s\n", outputPath)
-		if err := s.DownloadAudio(video.VideoURL, outputPath); err != nil {
+		title, err := s.DownloadAudio(video.VideoURL, outputPath)
+		if err != nil {
 			s.transcriptionRepo.UpdateVideoStatus(video.ID, "failed")
 			return fmt.Errorf("download error: %w", err)
+		}
+		fmt.Printf("Downloaded audio title: %s\n", title)
+		// Save the video title
+		if err := s.transcriptionRepo.UpdateVideoTitle(video.ID, title); err != nil {
+			fmt.Printf("Warning: failed to save video title: %v\n", err)
+			// Don't return error here as it's not critical to the main flow
 		}
 		fmt.Println("Audio download completed successfully")
 

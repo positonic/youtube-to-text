@@ -116,4 +116,27 @@ func (r *TranscriptionRepository) GetByURL(videoURL string) (*models.Video, erro
     }
     
     return &video, nil
+}
+
+func (r *TranscriptionRepository) UpdateVideoTitle(videoID string, title string) error {
+	const updateSQL = `
+		UPDATE "Video" 
+		SET title = $1, "updatedAt" = CURRENT_TIMESTAMP 
+		WHERE id = $2
+	`
+	result, err := r.db.Exec(updateSQL, title, videoID)
+	if err != nil {
+		return fmt.Errorf("failed to update title: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("no video found with ID: %s", videoID)
+	}
+
+	return nil
 } 

@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS "Video" (
     slug TEXT NOT NULL,
     transcription TEXT,
     status TEXT NOT NULL,
+    title TEXT,
     "isSearchable" BOOLEAN DEFAULT false,
     "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
