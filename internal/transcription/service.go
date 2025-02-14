@@ -57,6 +57,19 @@ func (s *Service) DownloadAudio(youtubeURL string, outputPath string) (string, e
 		return "", fmt.Errorf("error downloading audio: %w", err)
 	}
 	
+	// Check file size
+	fileInfo, err := os.Stat(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("error checking file size: %w", err)
+	}
+	
+	// 90MB is the max size for the audio file
+	const maxSize = 90 * 1024 * 1024 // 100MB in bytes
+	fmt.Printf("File size: %d bytes\n", fileInfo.Size())
+	if fileInfo.Size() > maxSize {
+		return "", fmt.Errorf("audio file too large: %d bytes (max: %d bytes)", fileInfo.Size(), maxSize)
+	}
+	
 	return title, nil
 }
 
