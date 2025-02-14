@@ -39,7 +39,7 @@ func (h *VideoHandler) GetVideo(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	videoID := vars["id"]
 
-	video, err := h.repo.GetVideo(videoID)
+	video, err := h.repo.Get(r.Context(), videoID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Video not found", http.StatusNotFound)

@@ -50,7 +50,7 @@ func sendAudioToLemonfox(filePath string, apiKey string) (string, error) {
 
 	// Add other form fields
 	writer.WriteField("language", "english")
-	writer.WriteField("response_format", "json")
+	writer.WriteField("response_format", "vtt")
 	writer.Close()
 
 	// Create request

@@ -17,12 +17,16 @@ CREATE TABLE IF NOT EXISTS "VideoChunk" (
     video_id TEXT REFERENCES "Video"(id),
     chunk_text TEXT NOT NULL,
     chunk_embedding vector(1536),
-    chunk_start INTEGER,
-    chunk_end INTEGER,
+    chunk_start_time INTERVAL,
+    chunk_end_time INTERVAL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX ON "VideoChunk" 
+-- Drop existing index if it exists
+DROP INDEX IF EXISTS "VideoChunk_chunk_embedding_idx";
+
+-- Recreate the index with explicit name
+CREATE INDEX "VideoChunk_chunk_embedding_idx" ON "VideoChunk" 
 USING ivfflat (chunk_embedding vector_cosine_ops)
 WITH (lists = 100);
 

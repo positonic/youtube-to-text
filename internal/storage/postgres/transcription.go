@@ -18,7 +18,7 @@ func NewTranscriptionRepository(db *sql.DB) *TranscriptionRepository {
 
 func (r *TranscriptionRepository) SaveChunks(videoID string, chunks []models.Chunk) error {
 	stmt, err := r.db.Prepare(`
-        INSERT INTO "VideoChunk" (video_id, chunk_text, chunk_embedding, chunk_start, chunk_end)
+        INSERT INTO "VideoChunk" (video_id, chunk_text, chunk_embedding, chunk_start_time, chunk_end_time)
         VALUES ($1, $2, $3::float8[], $4, $5)
     `)
 	if err != nil {
@@ -37,8 +37,8 @@ func (r *TranscriptionRepository) SaveChunks(videoID string, chunks []models.Chu
 			videoID,
 			chunk.Text,
 			pq.Array(embedding64),
-			chunk.StartPosition,
-			chunk.EndPosition,
+			chunk.StartTime.Seconds(),  // Convert Duration to seconds
+			chunk.EndTime.Seconds(),    // Convert Duration to seconds
 		)
 		if err != nil {
 			return fmt.Errorf("chunk insert failed: %w", err)
@@ -50,7 +50,7 @@ func (r *TranscriptionRepository) SaveChunks(videoID string, chunks []models.Chu
 func (r *TranscriptionRepository) SaveFullTranscription(videoID string, transcription string) error {
 	const updateSQL = `
 		UPDATE "Video" 
-		SET transcription = $1, "updatedAt" = CURRENT_TIMESTAMP 
+		SET transcription = $1, status = 'transcribed', "updatedAt" = CURRENT_TIMESTAMP 
 		WHERE id = $2
 	`
 	result, err := r.db.Exec(updateSQL, transcription, videoID)
@@ -91,4 +91,29 @@ func (r *TranscriptionRepository) UpdateVideoStatus(videoID string, status strin
 	}
 
 	return nil
+}
+
+func (r *TranscriptionRepository) GetByURL(videoURL string) (*models.Video, error) {
+	const query = `
+        SELECT id, "videoUrl", transcription, status, "isSearchable"
+        FROM "Video"
+        WHERE "videoUrl" = $1
+        AND transcription IS NOT NULL
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+    `
+    
+    var video models.Video
+    err := r.db.QueryRow(query, videoURL).Scan(
+        &video.ID,
+        &video.VideoURL,
+        &video.Transcription,
+        &video.Status,
+        &video.IsSearchable,
+    )
+    if err != nil {
+        return nil, err
+    }
+    
+    return &video, nil
 } 

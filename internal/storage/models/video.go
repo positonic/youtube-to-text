@@ -39,10 +39,17 @@ type SearchResult struct {
 	Similarity    float64 `json:"similarity"`
 }
 
+type SRTEntry struct {
+	Number    int
+	Start     time.Duration
+	End       time.Duration
+	Text      string
+}
+
 type Chunk struct {
 	Text          string
-	StartPosition int
-	EndPosition   int
+	StartTime     time.Duration
+	EndTime       time.Duration
 	Embedding     []float32
 }
 
