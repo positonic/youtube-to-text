@@ -3,3 +3,6 @@
 *.part
 *.ytdl
 *.mm4a
+
+.idea/
+.DS_Store
