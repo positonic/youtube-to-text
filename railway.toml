@@ -1,5 +1,5 @@
 [build]
-builder = "go"
+builder = "nixpacks"
 buildCommand = "go build -o bin/app cmd/transcription/main.go"
 
 [deploy]
