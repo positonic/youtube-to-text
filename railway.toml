@@ -5,3 +5,9 @@ buildCommand = "go build -o bin/app cmd/transcription/main.go"
 [deploy]
 startCommand = "bin/app TODO"
 restartPolicyType = "on_failure" 
+
+[build.deps]
+python3 = "latest"
+
+[build.steps]
+before = ["pip3 install yt-dlp"]
