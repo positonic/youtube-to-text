@@ -1,0 +1,7 @@
+[build]
+builder = "go"
+buildCommand = "go build -o bin/app cmd/transcription/main.go"
+
+[deploy]
+startCommand = "bin/app TODO"
+restartPolicyType = "on_failure" 
