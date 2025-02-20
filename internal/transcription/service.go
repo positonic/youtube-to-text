@@ -64,16 +64,119 @@ func (s *Service) DownloadAudio(youtubeURL string, outputPath string) (string, e
 	}
 	
 	// 90MB is the max size for the audio file
-	const maxSize = 90 * 1024 * 1024 // 100MB in bytes
+	const maxSize = 90 * 1024 * 1024 // 90MB in bytes
 	fmt.Printf("File size: %d bytes\n", fileInfo.Size())
 	if fileInfo.Size() > maxSize {
-		return "", fmt.Errorf("audio file too large: %d bytes (max: %d bytes)", fileInfo.Size(), maxSize)
+		fmt.Println("Audio file too large, splitting...")
+		// Get duration of the audio file
+		durationCmd := exec.Command("ffprobe",
+			"-v", "error",
+			"-show_entries", "format=duration",
+			"-of", "default=noprint_wrappers=1:nokey=1",
+			outputPath)
+		
+		durationBytes, err := durationCmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("error getting audio duration: %w", err)
+		}
+		
+		var duration float64
+		if _, err := fmt.Sscanf(string(durationBytes), "%f", &duration); err != nil {
+			return "", fmt.Errorf("error parsing duration: %w", err)
+		}
+
+		// Calculate number of segments needed (aim for ~80MB per segment)
+		numSegments := int(fileInfo.Size()/(80*1024*1024)) + 1
+		segmentDuration := duration / float64(numSegments)
+		fmt.Printf("Number of segments: %d\n", numSegments)
+		fmt.Printf("Segment duration: %f seconds\n", segmentDuration)
+		// Create a temporary directory for segments
+		segmentDir := outputPath + "_segments"
+		if err := os.MkdirAll(segmentDir, 0755); err != nil {
+			return "", fmt.Errorf("error creating segments directory: %w", err)
+		}
+		
+		// Split the file into segments
+		splitCmd := exec.Command("ffmpeg",
+			"-i", outputPath,
+			"-f", "segment",
+			"-segment_time", fmt.Sprintf("%f", segmentDuration),
+			"-c", "copy",
+			filepath.Join(segmentDir, "segment_%03d.mp3"))
+		
+		if err := splitCmd.Run(); err != nil {
+			os.RemoveAll(segmentDir) // Clean up on error
+			return "", fmt.Errorf("error splitting audio file: %w", err)
+		}
+		
+		// Remove the original large file
+		os.Remove(outputPath)
+		
+		// Return both the title and segment directory path
+		return title, nil
+	} else {
+		fmt.Println("Audio file is within the size limit")
 	}
 	
 	return title, nil
 }
 
 func (s *Service) TranscribeAudio(filePath string) (string, error) {
+	segmentDir := filePath + "_segments"
+	if _, err := os.Stat(segmentDir); err == nil {
+		segments, err := filepath.Glob(filepath.Join(segmentDir, "segment_*.mp3"))
+		if err != nil {
+			return "", fmt.Errorf("error finding segments: %w", err)
+		}
+		
+		if len(segments) > 1 {
+			fmt.Printf("Processing %d segments from %s\n", len(segments), segmentDir)
+		}
+		
+		var fullTranscription strings.Builder
+		var totalDuration time.Duration
+		
+		fullTranscription.WriteString("WEBVTT\n\n")
+		
+		for i, segment := range segments {
+			transcription, err := s.transcribeSegment(segment)
+			if err != nil {
+				return "", fmt.Errorf("error transcribing segment %s: %w", segment, err)
+			}
+			
+			// Parse entries for both first and subsequent segments
+			entries, err := ParseVTT(transcription)
+			if err != nil {
+				return "", fmt.Errorf("error parsing VTT segment %d: %w", i, err)
+			}
+			
+			// Adjust timestamps and write entries
+			for _, entry := range entries {
+				if i > 0 {  // Only adjust timestamps for segments after first
+					entry.Start += totalDuration
+					entry.End += totalDuration
+				}
+				fmt.Fprintf(&fullTranscription, "%s --> %s\n%s\n\n",
+					formatTimestamp(entry.Start),
+					formatTimestamp(entry.End),
+					entry.Text)
+			}
+			
+			// Update total duration after each segment
+			if len(entries) > 0 {
+				totalDuration = entries[len(entries)-1].End
+			}
+		}
+		
+		os.RemoveAll(segmentDir)
+		return fullTranscription.String(), nil
+	}
+	
+	return s.transcribeSegment(filePath)
+}
+
+func (s *Service) transcribeSegment(filePath string) (string, error) {
+	fmt.Println("Transcribing segment:", filePath)
 	fileData, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("error reading file: %w", err)
@@ -136,7 +239,6 @@ func (s *Service) ListenForNewVideos() error {
 	}
 
 	fmt.Println("Listening for new videos...")
-	fmt.Printf("Connected to database: %s\n", s.dbURL)
 
 	for {
 		select {
@@ -315,4 +417,17 @@ func max(a, b int) int {
         return a
     }
     return b
+}
+
+// Helper function to format Duration as VTT timestamp
+func formatTimestamp(d time.Duration) string {
+    h := d / time.Hour
+    d -= h * time.Hour
+    m := d / time.Minute
+    d -= m * time.Minute
+    s := d / time.Second
+    d -= s * time.Second
+    ms := d / time.Millisecond
+    
+    return fmt.Sprintf("%02d:%02d:%02d.%03d", h, m, s, ms)
 }
