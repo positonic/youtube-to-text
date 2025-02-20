@@ -7,6 +7,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"jamesfarrell.me/youtube-to-text/internal/api"
+	"jamesfarrell.me/youtube-to-text/internal/config"
 	"jamesfarrell.me/youtube-to-text/internal/storage/db"
 	"jamesfarrell.me/youtube-to-text/internal/storage/postgres"
 )
@@ -16,9 +17,11 @@ func main() {
 		log.Printf("Error loading .env file: %v\n", err)
 	}
 
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL environment variable must be set")
+	dbURL := config.GetDatabaseURL()
+	
+	apiKey := os.Getenv("SERVICE_API_KEY")
+	if apiKey == "" {
+		log.Fatal("SERVICE_API_KEY environment variable must be set")
 	}
 
 	// Initialize database connection

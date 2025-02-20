@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"jamesfarrell.me/youtube-to-text/internal/config"
 	"jamesfarrell.me/youtube-to-text/internal/storage/db"
 	"jamesfarrell.me/youtube-to-text/internal/storage/postgres"
 	"jamesfarrell.me/youtube-to-text/internal/transcription"
@@ -15,7 +16,8 @@ func main() {
 		log.Printf("Error loading .env file: %v\n", err)
 	}
 
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := config.GetDatabaseURL()
+	
 	apiKey := os.Getenv("LEMONFOX_API_KEY")
 
 	if apiKey == "" || dbURL == "" {

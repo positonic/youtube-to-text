@@ -17,6 +17,23 @@ The production setup uses a PostgreSQL database and a trigger to listen for new 
 ### 1. Environment Variables
 
 Create a `.env` file based on `.env.example`.
+The application requires the following environment variables to be set in a `.env` file:
+
+If you create a new database, you can set the `DATABASE_URL_<identifier>` environment variable to the database URL.
+
+Then you should run the script as follows:
+
+```bash
+go run cmd/transcription/main.go <identifier>
+```
+
+for example:
+
+```bash
+go run cmd/transcription/main.go DEFAULT
+```
+
+will look for an variable in your .env called `DATABASE_URL_DEFAULT` and use that to connect to the database.
 
 ### 2. Try a one-off run to see how it works
 
