@@ -19,8 +19,10 @@ func downloadAudio(youtubeUrl string, outputPath string) error {
 		"-o", outputPath,
 		youtubeUrl)
 
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("error downloading audio: %w", err)
+		return fmt.Errorf("error downloading audio: %w\nstderr: %s", err, stderr.String())
 	}
 	fmt.Println("Audio downloaded successfully.")
 	return nil
@@ -28,7 +30,7 @@ func downloadAudio(youtubeUrl string, outputPath string) error {
 
 func sendAudioToLemonfox(filePath string, apiKey string) (string, error) {
 	fmt.Println("Starting transcription process...")
-	
+
 	// Read file
 	fileData, err := os.ReadFile(filePath)
 	if err != nil {
