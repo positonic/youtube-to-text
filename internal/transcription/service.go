@@ -34,18 +34,24 @@ func NewService(repo *postgres.TranscriptionRepository, apiKey string, dbURL str
 }
 
 func (s *Service) DownloadAudio(youtubeURL string, outputPath string) (string, error) {
-	// First, get the title using yt-dlp
+	// Create segments directory from the start
+	segmentDir := outputPath + "_segments"
+	if err := os.MkdirAll(segmentDir, 0755); err != nil {
+		return "", fmt.Errorf("error creating segments directory: %w", err)
+	}
+
+	// Add verbose output to help debug
 	titleCmd := exec.Command("yt-dlp",
 		"--get-title",
 		youtubeURL)
 	
-	titleBytes, err := titleCmd.Output()
+	titleBytes, err := titleCmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("error getting video title: %w", err)
+		return "", fmt.Errorf("error getting video title: %w, output: %s", err, string(titleBytes))
 	}
 	title := strings.TrimSpace(string(titleBytes))
 
-	// Then download the audio as before
+	// Check file size first by downloading to original path
 	cmd := exec.Command("yt-dlp",
 		"--extract-audio",
 		"--audio-format", "mp3",
@@ -90,11 +96,6 @@ func (s *Service) DownloadAudio(youtubeURL string, outputPath string) (string, e
 		segmentDuration := duration / float64(numSegments)
 		fmt.Printf("Number of segments: %d\n", numSegments)
 		fmt.Printf("Segment duration: %f seconds\n", segmentDuration)
-		// Create a temporary directory for segments
-		segmentDir := outputPath + "_segments"
-		if err := os.MkdirAll(segmentDir, 0755); err != nil {
-			return "", fmt.Errorf("error creating segments directory: %w", err)
-		}
 		
 		// Split the file into segments
 		splitCmd := exec.Command("ffmpeg",
@@ -116,6 +117,11 @@ func (s *Service) DownloadAudio(youtubeURL string, outputPath string) (string, e
 		return title, nil
 	} else {
 		fmt.Println("Audio file is within the size limit")
+		// Move the single file to segments directory
+		singleSegmentPath := filepath.Join(segmentDir, "segment_000.mp3")
+		if err := os.Rename(outputPath, singleSegmentPath); err != nil {
+			return "", fmt.Errorf("error moving file to segments directory: %w", err)
+		}
 	}
 	
 	return title, nil
@@ -172,7 +178,17 @@ func (s *Service) TranscribeAudio(filePath string) (string, error) {
 		return fullTranscription.String(), nil
 	}
 	
-	return s.transcribeSegment(filePath)
+	// Handle single segment the same way as multiple segments
+	transcription, err := s.transcribeSegment(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	if strings.Contains(transcription, "\\n") {
+		transcription = strings.ReplaceAll(transcription, "\\n", "\n")
+	}
+		
+	return transcription, nil
 }
 
 func (s *Service) transcribeSegment(filePath string) (string, error) {
@@ -294,7 +310,17 @@ func (s *Service) processVideoNotification(notification string) error {
 			return fmt.Errorf("failed to update status to processing: %w", err)
 		}
 		
-		outputPath := fmt.Sprintf("./temp_%s.mp3", video.ID)
+		// Create temp directory in current directory for local development
+		tempDir := "temp"
+		if os.Getenv("RAILWAY_ENVIRONMENT") != "" {
+			tempDir = "/tmp" // Use /tmp in Railway
+		}
+		
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			return fmt.Errorf("failed to create temp directory: %w", err)
+		}
+		
+		outputPath := filepath.Join(tempDir, fmt.Sprintf("temp_%s.mp3", video.ID))
 		defer os.Remove(outputPath)
 
 		fmt.Printf("Downloading audio to: %s\n", outputPath)

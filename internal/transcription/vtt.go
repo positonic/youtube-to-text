@@ -19,7 +19,6 @@ func ParseVTT(content string) ([]models.SRTEntry, error) {
 		content = strings.ReplaceAll(content, "\\n", "\n")
 	}
 
-	fmt.Println("Content after replacing \\n with actual newlines:", content[:11])
 	// Now validate the header with actual newlines
 	if !strings.HasPrefix(content, "WEBVTT\n\n") {
 		return nil, fmt.Errorf("invalid VTT format: missing WEBVTT header")
